@@ -1,0 +1,61 @@
+---
+- name: Install haproxy_exporter for Prometheus
+  hosts: srvproxilan
+  become: yes
+  remote_user: tux
+  tasks:
+    - name: create a prometheus_exporter group
+      group:
+        name: prometheus_exporter
+        state: present
+    - name: create a prometheus_exporter user
+      user:
+        name: prometheus_exporter
+        state: present
+        shell: /bin/false
+        groups: prometheus_exporter
+        system: yes
+    - name: installation de wget and rsync
+      dnf:
+        name: "{{ packages }}"
+        state: latest
+      vars:
+        packages:
+        - wget
+        - rsync
+    - name: Copy haproxy.cfg modified to server
+      synchronize:
+        src: config-lan/
+        dest: /etc/haproxy/
+    - name: Download haproxy_exporter.tar.gz
+      command: wget https://github.com/prometheus/haproxy_exporter/releases/download/v0.13.0/haproxy_exporter-0.13.0.linux-amd64.tar.gz
+    - name: Extract haproxy_exporter.tar.gz
+      command: tar -zxf haproxy_exporter-0.13.0.linux-amd64.tar.gz
+    - name: Install haproxy_exporter
+      command: cp haproxy_exporter-0.13.0.linux-amd64/haproxy_exporter /usr/local/bin/
+    - name: creation du fichier de service pour haproxy_exporter
+      file:
+        path: /etc/systemd/system/haproxy_exporter.service
+        state: touch
+    - blockinfile:
+        path: /etc/systemd/system/haproxy_exporter.service
+        block: |
+          [Unit]
+          Description=Prometheus Haproxy Exporter
+          Wants=network.target
+          After=network.target
+          [Service]
+          User=prometheus_exporter
+          Group=prometheus_exporter
+          Type=simple
+          ExecStart=/usr/local/bin/haproxy_exporter --haproxy.scrape-uri=http://localhost:5000/stats;csv
+          Restart=always
+          [Install]
+          WantedBy=multi-user.target
+    - name: Reload Daemon
+      command: systemctl daemon-reload
+    - name: Start and enable haproxy_exporter service
+      service:
+        name: haproxy_exporter
+        state: restarted
+        enabled: yes
